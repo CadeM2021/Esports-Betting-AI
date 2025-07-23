@@ -1,13 +1,18 @@
-# Core dependencies
+# Core dependencies (pinned for stability)
 streamlit==1.35.0
 pandas==2.2.2
-numpy==1.26.4
+numpy==1.26.4  # Required by pandas
 requests==2.32.3
 
-# Web scraping
+# Lightweight scraping alternatives
 beautifulsoup4==4.13.4
-selenium==4.21.0
-webdriver-manager==4.0.1
+requests-html==0.10.0  # Replacement for selenium
+lxml==5.2.2  # Faster HTML parsing
 
-# Optional (already included via other packages)
-bs4==0.0.1  # Not strictly needed as beautifulsoup4 provides bs4
+# Cache management
+cachetools==5.3.3
+
+# Remove these (not compatible with Streamlit Cloud):
+# selenium==4.21.0
+# webdriver-manager==4.0.1
+# bs4==0.0.1
