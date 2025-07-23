@@ -1,8 +1,13 @@
-beautifulsoup4==4.13.4
-bs4==0.0.1
-requests==2.32.3
-pandas==2.2.2
+# Core dependencies
 streamlit==1.35.0
-numpy==1.26.4  # Changed from 2.0.2 to resolve conflicts
+pandas==2.2.2
+numpy==1.26.4
+requests==2.32.3
+
+# Web scraping
+beautifulsoup4==4.13.4
 selenium==4.21.0
 webdriver-manager==4.0.1
+
+# Optional (already included via other packages)
+bs4==0.0.1  # Not strictly needed as beautifulsoup4 provides bs4
