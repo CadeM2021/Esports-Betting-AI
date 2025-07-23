@@ -2,8 +2,9 @@ FROM python:3.11-slim
 
 # Install system dependencies
 RUN apt-get update && apt-get install -y \
-    wget gnupg \
+    wget gnupg unzip \
     libnss3 libgconf-2-4 libfontconfig1 fonts-liberation \
+    xvfb libxss1 libxtst6 libxkbcommon0 \
     && rm -rf /var/lib/apt/lists/*
 
 # Install Chrome
@@ -25,6 +26,14 @@ RUN CHROME_MAJOR=$(google-chrome --version | awk '{print $3}' | cut -d'.' -f1) \
 WORKDIR /app
 COPY . .
 RUN pip install --no-cache-dir -r requirements.txt
+
+# Environment variables
+ENV DISPLAY=:99 \
+    CHROME_BIN=/usr/bin/google-chrome \
+    CHROME_DRIVER=/usr/bin/chromedriver \
+    PYTHONUNBUFFERED=1
+
+CMD ["streamlit", "run", "streamlit_app.py"]
 
 ENV DISPLAY=:99 \
     CHROME_BIN=/usr/bin/google-chrome \
