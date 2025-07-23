@@ -1,42 +1,28 @@
-# Base image (Python 3.11 slim)
 FROM python:3.11-slim
 
-# 1. Install system dependencies
+# 1. Install Chrome dependencies
 RUN apt-get update && apt-get install -y \
-    wget gnupg unzip \
-    libnss3 libgconf-2-4 libfontconfig1 fonts-liberation \
+    wget gnupg \
+    libnss3 libgconf-2-4 libfontconfig1 \
     && rm -rf /var/lib/apt/lists/*
 
-# 2. Install Chrome (stable version)
+# 2. Install Chrome
 RUN wget -q -O - https://dl-ssl.google.com/linux/linux_signing_key.pub | apt-key add - \
     && echo "deb [arch=amd64] http://dl.google.com/linux/chrome/deb/ stable main" > /etc/apt/sources.list.d/google-chrome.list \
     && apt-get update \
     && apt-get install -y google-chrome-stable \
     && rm -rf /var/lib/apt/lists/*
 
-# 3. Auto-install matching Chromedriver
-RUN CHROME_MAJOR=$(google-chrome --version | awk '{print $3}' | cut -d'.' -f1) \
-    && wget -q https://chromedriver.storage.googleapis.com/LATEST_RELEASE_$CHROME_MAJOR -O version.txt \
+# 3. Install matching Chromedriver
+RUN CHROME_VERSION=$(google-chrome --version | awk '{print $3}' | cut -d'.' -f1) \
+    && wget -q https://chromedriver.storage.googleapis.com/LATEST_RELEASE_$CHROME_VERSION -O version.txt \
     && wget -q https://chromedriver.storage.googleapis.com/$(cat version.txt)/chromedriver_linux64.zip \
     && unzip chromedriver_linux64.zip \
     && mv chromedriver /usr/bin/chromedriver \
     && chmod +x /usr/bin/chromedriver \
-    && rm chromedriver_linux64.zip version.txt
+    && rm chromedriver* version.txt
 
-# 4. Set up app
 WORKDIR /app
 COPY . .
-
-# 5. Install Python dependencies
-RUN pip install --no-cache-dir -r requirements.txt
-
-# 6. Environment config
-ENV DISPLAY=:99 \
-    CHROME_BIN=/usr/bin/google-chrome \
-    CHROME_DRIVER=/usr/bin/chromedriver \
-    PYTHONUNBUFFERED=1
-
-# 7. Run Streamlit
-CMD ["streamlit", "run", "streamlit_app.py", \
-    "--server.port=8501", \
-    "--server.address=0.0.0.0"]
+RUN pip install -r requirements.txt
+CMD ["streamlit", "run", "streamlit_app.py"]
