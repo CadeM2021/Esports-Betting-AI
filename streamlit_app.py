@@ -81,8 +81,7 @@ def get_player_stats():
             
     except Exception as e:
         st.error(f"🚨 Data processing error")
-
-    return SAMPLE_PLAYERS
+        return SAMPLE_PLAYERS
 
 def get_upcoming_matches():
     """Get scheduled matches from VLR.gg"""
