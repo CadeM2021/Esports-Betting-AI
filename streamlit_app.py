@@ -219,42 +219,8 @@ def esports_chatbot():
         st.session_state.messages.append({"role": "assistant", "content": response})
 
 # ======================
-# 4. STREAMLIT UI
+# 4. STREAMLIT UI (FIXED VERSION)
 # ======================
-
-def display_player_report(player_data):
-    """Safe player display with validation"""
-    try:
-        with st.expander(f"🔍 {player_data['player']} ({player_data['team']})", expanded=False):
-            col1, col2, col3 = st.columns(3)
-            col1.metric("Bet Line", f"{player_data['line']:.1f}")
-            col2.metric("7-Day Avg", f"{player_data['avg_kills']:.1f}")
-            col3.metric("Hit Probability", f"{player_data['hit_prob']:.0%}")
-            
-            st.write(f"**Main Agent:** {player_data.get('main_agent', 'Unknown')}")
-            
-            # Safely display recent form
-            matches_played = player_data.get('matches_played', 0)
-            min_kills = player_data.get('min_kills', 'N/A')
-            max_kills = player_data.get('max_kills', 'N/A')
-            st.write(f"**Recent Form:** {matches_played} matches ({min_kills}-{max_kills} kills)")
-            
-            # Display opponents if available
-            if 'recent_opponents' in player_data and player_data['recent_opponents']:
-                st.write("**Recent Opponents:**")
-                for opp in player_data['recent_opponents'][:3]:  # Show max 3
-                    st.write(f"- {opp}")
-            
-            # Prediction rationale
-            st.write("**Analysis:**")
-            if player_data['prediction'].startswith('STRONG'):
-                st.success(f"Strong over candidate - {player_data['player']} averages {player_data['avg_kills']:.1f} kills, significantly above their line.")
-            elif player_data['prediction'].startswith('MODERATE'):
-                st.info(f"Moderate over chance - {player_data['player']} has been performing slightly above this line.")
-            else:
-                st.warning(f"Caution - recent performance suggests this line may be too high.")
-    except Exception as e:
-        st.error(f"Couldn't display player report: {str(e)}")
 
 def main():
     st.set_page_config(
@@ -283,4 +249,12 @@ def main():
                 'line': [20.5, 18.0, 16.5],
                 'avg_kills': [22.1, 19.3, 17.8],
                 'matches_played': [4, 5, 5],
-                'main_agent': ['Jett', 'Vi
+                'main_agent': ['Jett', 'Viper', 'Killjoy'],  # Fixed string termination
+                'hit_prob': [0.75, 0.65, 0.58],
+                'prediction': ['STRONG OVER', 'MODERATE OVER', 'SLIGHT OVER'],
+                'recent_opponents': [
+                    ['Sentinels', 'NRG', '100T'],
+                    ['Fnatic', 'DRX', 'EDG'],
+                    ['Team Liquid', 'G2', 'FURIA']
+                ]
+            })
