@@ -10,5 +10,9 @@ beautifulsoup4>=4.13.4
 lxml>=5.2.2
 soupsieve>=2.5  # Required by beautifulsoup4
 
+# Chatbot & AI
+openai>=1.12.0  # For the esports stats chatbot
+tiktoken>=0.6.0  # Optional: For token counting
+
 # Data Analysis
-scipy>=1.13.0  # For advanced statistical calculations
+scipy>=1.13.0  # For advanced stats calculations
