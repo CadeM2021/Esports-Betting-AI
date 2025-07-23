@@ -4,7 +4,17 @@ from bs4 import BeautifulSoup
 import requests
 from selenium import webdriver
 import time
+# Add at the top:
+from utils.browser import init_driver
 
+# Usage example:
+def scrape_underdog():
+    driver = init_driver()
+    try:
+        driver.get("https://underdogfantasy.com")
+        # ... scraping logic ...
+    finally:
+        driver.quit()
 # ======================
 # 1. CORE SCRAPING FUNCTIONS
 # ======================
