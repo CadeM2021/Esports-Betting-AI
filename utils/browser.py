@@ -18,3 +18,5 @@ def init_driver(headless=True):
     # Configure timeouts
     driver.set_page_load_timeout(30)
     return driver
+options.add_argument("--no-sandbox")
+options.add_argument("--disable-dev-shm-usage")
