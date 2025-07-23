@@ -4,257 +4,145 @@ import requests
 from bs4 import BeautifulSoup
 from datetime import datetime, timedelta
 import numpy as np
-import openai  # For chatbot functionality
+from scipy import stats
+import pytz
+from selenium import webdriver
+from selenium.webdriver.chrome.options import Options
+from webdriver_manager.chrome import ChromeDriverManager
 
-# ======================
-# 1. ENHANCED DATA SCRAPING
-# ======================
+# ========== [1. Enhanced Scraping with Selenium] ==========
+def setup_selenium():
+    chrome_options = Options()
+    chrome_options.add_argument("--headless")
+    chrome_options.add_argument("--disable-gpu")
+    chrome_options.add_argument("--no-sandbox")
+    return webdriver.Chrome(ChromeDriverManager().install(), options=chrome_options)
 
-def scrape_underdog_lines():
-    """Scrape with team validation and current roster checks"""
-    valorant_urls = [
-        "https://underdogfantasy.com/pick-em/higher-lower/all/val",
-        "https://underdogfantasy.com/pick-em/higher-lower/all/esports"
-    ]
-    
-    current_rosters = {
-        'MIBR': ['aspas', 'jzz', 'RgLM', 'murizzz', 'Artzin'],
-        'LOUD': ['qck', 'tuyz', 'cauanzin', 'saadhak', 'Less'],
-        # Add more current rosters as needed
-    }
-    
-    headers = {'User-Agent': 'Mozilla/5.0'}
-    all_players = []
-    
-    for url in valorant_urls:
-        try:
-            response = requests.get(url, headers=headers, timeout=15)
-            soup = BeautifulSoup(response.text, 'html.parser')
-            
-            for player in soup.select("div.player-line"):
-                try:
-                    name = player.select_one("div.player-name").get_text(strip=True)
-                    line = float(player.select_one("div.line-value").get_text(strip=True))
-                    team_elem = player.select_one("div.player-team")
-                    team = team_elem.get_text(strip=True) if team_elem else "Unknown"
-                    
-                    # Validate team roster
-                    valid = False
-                    for org, players in current_rosters.items():
-                        if name.lower() in [p.lower() for p in players] and org.lower() in team.lower():
-                            valid = True
-                            team = org  # Standardize team name
-                            break
-                    
-                    if valid:
-                        all_players.append({
-                            'player': name,
-                            'line': line,
-                            'team': team,
-                            'source': url.split('/')[-1]
-                        })
-                except:
-                    continue
-                    
-        except Exception as e:
-            st.warning(f"Underdog scrape failed for {url}: {str(e)}")
-            continue
-    
-    return pd.DataFrame(all_players) if all_players else None
+def scrape_underdog_with_selenium():
+    driver = setup_selenium()
+    try:
+        driver.get("https://underdogfantasy.com/pick-em/higher-lower/all/val")
+        time.sleep(5)  # Wait for JS rendering
+        soup = BeautifulSoup(driver.page_source, 'html.parser')
+        
+        players = []
+        for card in soup.select('div.player-line'):
+            try:
+                players.append({
+                    'name': card.select_one('div.player-name').text.strip(),
+                    'line': float(card.select_one('div.line-value').text.strip()),
+                    'team': card.select_one('div.player-team').text.strip(),
+                    'scraped_at': datetime.now(pytz.UTC)
+                })
+            except:
+                continue
+        return pd.DataFrame(players)
+    finally:
+        driver.quit()
 
-def scrape_vlr_match_details():
-    """Get current match data with team validation"""
+# ========== [2. VLR.gg Match Scraper] ==========
+def scrape_vlr_matches():
     try:
         url = "https://www.vlr.gg/matches"
-        headers = {'User-Agent': 'Mozilla/5.0'}
-        response = requests.get(url, headers=headers, timeout=20)
+        response = requests.get(url, headers={'User-Agent': 'Mozilla/5.0'}, timeout=20)
         soup = BeautifulSoup(response.text, 'html.parser')
         
         matches = []
-        
-        for match in soup.select("a.match-item"):
+        for match in soup.select('a.match-item'):
             try:
-                date_str = match.select_one("div.match-item-date").get_text(strip=True)
-                match_date = datetime.strptime(date_str, '%Y-%m-%d')
-                
-                if match_date > datetime.now() - timedelta(days=7):
-                    team1 = match.select_one("div.match-item-vs-team-name.mod-1").get_text(strip=True)
-                    team2 = match.select_one("div.match-item-vs-team-name.mod-2").get_text(strip=True)
-                    
-                    # Skip matches without recognized teams
-                    if not any(t in ['MIBR', 'LOUD', 'Sentinels'] for t in [team1, team2]):  # Add more teams
-                        continue
-                        
-                    match_url = f"https://www.vlr.gg{match['href']}"
-                    match_response = requests.get(match_url, headers=headers, timeout=15)
-                    match_soup = BeautifulSoup(match_response.text, 'html.parser')
-                    
-                    for player_row in match_soup.select("table.wf-table-inset.mod-overview tbody tr"):
-                        try:
-                            player_name = player_row.select_one("td.mod-player").get_text(strip=True)
-                            kills = int(player_row.select_one("td.mod-kills").get_text(strip=True))
-                            deaths = int(player_row.select_one("td.mod-deaths").get_text(strip=True))
-                            agent = player_row.select_one("td.mod-agents").get_text(strip=True)
-                            
-                            matches.append({
-                                'player': player_name,
-                                'team': team1 if player_name in team1 else team2,
-                                'kills': kills,
-                                'deaths': deaths,
-                                'agent': agent,
-                                'vs_team': team2 if player_name in team1 else team1,
-                                'date': match_date,
-                                'event': match.select_one("div.match-item-event").get_text(strip=True)
-                            })
-                        except:
-                            continue
+                matches.append({
+                    'team1': match.select_one('div.mod-1').text.strip(),
+                    'team2': match.select_one('div.mod-2').text.strip(),
+                    'event': match.select_one('div.match-item-event').text.strip(),
+                    'time': match.select_one('div.match-item-time').text.strip(),
+                    'link': f"https://www.vlr.gg{match['href']}"
+                })
             except:
                 continue
-                
-        return pd.DataFrame(matches) if matches else None
-        
+        return pd.DataFrame(matches)
     except Exception as e:
-        st.error(f"VLR.gg detailed scrape failed: {str(e)}")
-        return None
+        st.error(f"VLR scrape failed: {str(e)}")
+        return pd.DataFrame()
 
-# ======================
-# 2. ENHANCED ANALYSIS ENGINE
-# ======================
-
-def generate_player_reports(underdog_df, vlr_df):
-    """Robust analysis with error handling"""
-    try:
-        if underdog_df is None or vlr_df is None:
-            raise ValueError("Missing source data")
+# ========== [3. Prediction Engine] ==========
+def calculate_predictions(lines_df, matches_df):
+    predictions = []
+    for _, row in lines_df.iterrows():
+        try:
+            # Get matchup data
+            match = matches_df[
+                (matches_df['team1'].str.contains(row['team'])) | 
+                (matches_df['team2'].str.contains(row['team']))
+            ].iloc[0]
             
-        # Calculate player stats with validation
-        player_stats = vlr_df.groupby(['player', 'team']).agg({
-            'kills': ['mean', 'max', 'min', 'count'],
-            'deaths': 'mean',
-            'agent': lambda x: x.mode()[0] if not x.empty else 'Unknown'
-        }).reset_index()
-        
-        # Flatten multi-index columns
-        player_stats.columns = ['player', 'team', 'avg_kills', 'max_kills', 'min_kills', 
-                              'matches_played', 'avg_deaths', 'main_agent']
-        
-        # Safe merge
-        merged = pd.merge(
-            underdog_df,
-            player_stats,
-            on=['player', 'team'],
-            how='inner'
-        ).dropna(subset=['avg_kills'])
-        
-        if merged.empty:
-            raise ValueError("No valid player matches found")
-        
-        # Calculate metrics
-        merged['edge'] = merged['avg_kills'] - merged['line']
-        merged['hit_prob'] = np.clip(0.5 + (merged['edge']/5), 0.3, 0.9)
-        
-        # Add recent opponents safely
-        def get_recent_opponents(player):
-            try:
-                return vlr_df[vlr_df['player'] == player]['vs_team'].unique()[:3].tolist()
-            except:
-                return []
-        
-        merged['recent_opponents'] = merged['player'].apply(get_recent_opponents)
-        
-        # Prediction tiers
-        conditions = [
-            (merged['hit_prob'] > 0.7),
-            (merged['hit_prob'] > 0.6),
-            (merged['hit_prob'] > 0.5)
-        ]
-        choices = ['STRONG OVER', 'MODERATE OVER', 'SLIGHT OVER']
-        merged['prediction'] = np.select(conditions, choices, default='UNDER')
-        
-        return merged.sort_values('hit_prob', ascending=False)
-        
-    except Exception as e:
-        st.error(f"Analysis error: {str(e)}")
-        return None
+            opponent = match['team2'] if match['team1'] == row['team'] else match['team1']
+            
+            # Advanced prediction model (simplified example)
+            mu = row['line'] * 1.1  # Expected mean
+            sigma = 2.5  # Standard deviation
+            prob_over = 1 - stats.norm.cdf(row['line'], mu, sigma)
+            
+            predictions.append({
+                'Player': row['name'],
+                'Line': row['line'],
+                'Team': row['team'],
+                'Opponent': opponent,
+                'Event': match['event'],
+                'Time': match['time'],
+                'P(OVER)': f"{prob_over:.0%}",
+                'Verdict': "OVER" if prob_over > 0.6 else "UNDER",
+                'Confidence': "High" if abs(prob_over - 0.5) > 0.3 else "Medium"
+            })
+        except:
+            continue
+    return pd.DataFrame(predictions)
 
-# ======================
-# 3. ESPORTS CHATBOT
-# ======================
-
-def esports_chatbot():
-    """AI-powered esports stats assistant"""
-    st.sidebar.header("🤖 Esports Stats Assistant")
-    
-    # Initialize chat history
-    if "messages" not in st.session_state:
-        st.session_state.messages = []
-    
-    # Display chat messages
-    for message in st.session_state.messages:
-        with st.sidebar.chat_message(message["role"]):
-            st.sidebar.markdown(message["content"])
-    
-    # Accept user input
-    if prompt := st.sidebar.chat_input("Ask about Valorant stats"):
-        # Add user message to chat history
-        st.session_state.messages.append({"role": "user", "content": prompt})
-        
-        # Display user message
-        with st.sidebar.chat_message("user"):
-            st.sidebar.markdown(prompt)
-        
-        # Generate AI response (simplified - would use OpenAI API in production)
-        if "stats" in prompt.lower():
-            response = "I can analyze recent player performance. Check the main dashboard for detailed predictions!"
-        elif "team" in prompt.lower():
-            response = "I track all major VCT teams. Currently analyzing MIBR, LOUD, Sentinels and more."
+# ========== [4. Chatbot System] ==========
+class EsportsAnalyst:
+    def generate_response(self, query, predictions):
+        if "over" in query.lower() or "under" in query.lower():
+            filtered = predictions[predictions['Verdict'] == query.upper().split()[-1]]
+            return filtered.to_markdown()
+        elif "player" in query.lower():
+            player = query.split()[-1]
+            return predictions[predictions['Player'] == player].to_markdown()
         else:
-            response = "I specialize in Valorant esports analytics. Ask me about player stats or match predictions!"
-        
-        # Display assistant response
-        with st.sidebar.chat_message("assistant"):
-            st.sidebar.markdown(response)
-        
-        # Add assistant response to chat history
-        st.session_state.messages.append({"role": "assistant", "content": response})
+            return "Ask about: 'OVER predictions', 'UNDER predictions', or 'Player [name]'"
 
-# ======================
-# 4. STREAMLIT UI (FIXED VERSION)
-# ======================
-
+# ========== [5. Streamlit UI] ==========
 def main():
-    st.set_page_config(
-        page_title="Valorant Predictive Analytics+",
-        layout="wide"
+    st.set_page_config(layout="wide", page_title="VALORANT Line Predictor Pro")
+    
+    # Data Loading
+    with st.spinner("Loading live data..."):
+        lines = scrape_underdog_with_selenium()
+        matches = scrape_vlr_matches()
+        predictions = calculate_predictions(lines, matches)
+        analyst = EsportsAnalyst()
+    
+    # Main Display
+    st.title("🔫 VALORANT Line Predictor Pro")
+    st.dataframe(
+        predictions.style.applymap(
+            lambda x: "background-color: #4CAF50" if x == "OVER" else "background-color: #F44336",
+            subset=['Verdict']
+        ),
+        use_container_width=True
     )
     
-    # Initialize chatbot
-    esports_chatbot()
+    # Chatbot
+    st.sidebar.header("🤖 Esports Analyst")
+    if "chat" not in st.session_state:
+        st.session_state.chat = []
     
-    st.title("🎯 Valorant Predictive Analytics+")
-    st.caption("Real-time player line predictions with AI analysis")
+    for msg in st.session_state.chat:
+        st.sidebar.write(msg)
     
-    # Data loading with progress
-    with st.spinner("Loading latest Valorant data..."):
-        underdog_data = scrape_underdog_lines()
-        vlr_data = scrape_vlr_match_details()
-        
-        predictions = generate_player_reports(underdog_data, vlr_data)
-        
-        if predictions is None or predictions.empty:
-            st.error("⚠️ Live data unavailable - showing last valid analysis")
-            predictions = pd.DataFrame({
-                'player': ['aspas', 'Less', 'qck'],
-                'team': ['MIBR', 'LOUD', 'LOUD'],
-                'line': [20.5, 18.0, 16.5],
-                'avg_kills': [22.1, 19.3, 17.8],
-                'matches_played': [4, 5, 5],
-                'main_agent': ['Jett', 'Viper', 'Killjoy'],  # Fixed string termination
-                'hit_prob': [0.75, 0.65, 0.58],
-                'prediction': ['STRONG OVER', 'MODERATE OVER', 'SLIGHT OVER'],
-                'recent_opponents': [
-                    ['Sentinels', 'NRG', '100T'],
-                    ['Fnatic', 'DRX', 'EDG'],
-                    ['Team Liquid', 'G2', 'FURIA']
-                ]
-            })
+    if prompt := st.sidebar.text_input("Ask about predictions"):
+        response = analyst.generate_response(prompt, predictions)
+        st.session_state.chat.append(f"You: {prompt}")
+        st.session_state.chat.append(f"Bot: {response}")
+        st.sidebar.rerun()
+
+if __name__ == "__main__":
+    main()
