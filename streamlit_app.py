@@ -4,33 +4,14 @@ from bs4 import BeautifulSoup
 import requests
 from selenium import webdriver
 import time
-# Add at the top:
 from utils.browser import init_driver
 
-# Usage example:
-def scrape_underdog():
-    driver = init_driver()
-    try:
-        driver.get("https://underdogfantasy.com")
-        # ... scraping logic ...
-    finally:
-        driver.quit()
 # ======================
 # 1. CORE SCRAPING FUNCTIONS
 # ======================
 def scrape_underdog_lines():
     """Scrape ALL player kill lines from Underdog"""
-    options = webdriver.ChromeOptions()
-    options.add_argument("--headless")
-    driver = webdriver.Chrome(options=options)
-    def scrape_underdog_lines():
     driver = init_driver()
-    try:
-        driver.get("https://underdogfantasy.com")
-        # Add your scraping logic here
-        return pd.DataFrame()  # Return your scraped data
-    finally:
-        driver.quit()
     try:
         driver.get("https://underdogfantasy.com/pick-em/higher-lower")
         time.sleep(5)  # Wait for JS loading
