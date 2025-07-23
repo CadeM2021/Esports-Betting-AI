@@ -10,64 +10,39 @@ import numpy as np
 # ======================
 
 def scrape_underdog_lines():
-    """Robust Underdog Fantasy API scraper with multiple fallbacks"""
+    """Robust Underdog Fantasy data collector"""
     try:
-        # Try direct API first
-        api_url = "https://api.underdogfantasy.com/beta/v3/over_under_lines"
-        params = {'game': 'valorant', 'stat': 'kills'}
-        
+        # Try HTML scraping directly since API is unreliable
         response = requests.get(
-            api_url,
+            "https://underdogfantasy.com/pick-em/higher-lower",
             headers={'User-Agent': 'Mozilla/5.0'},
-            params=params,
-            timeout=10
+            timeout=15
         )
-        data = response.json()
+        soup = BeautifulSoup(response.text, 'html.parser')
         
-        if 'lines' not in data:
-            raise ValueError("Unexpected API response format")
+        players = []
+        for player in soup.select("div.player-line")[:25]:  # Limit to 25 players
+            try:
+                players.append({
+                    'name': player.select_one("div.player-name").get_text(strip=True),
+                    'line': float(player.select_one("div.line-value").get_text(strip=True))
+                })
+            except:
+                continue
+                
+        return pd.DataFrame(players) if players else None
             
-        return pd.DataFrame([{
-            'name': line['player_name'],
-            'line': float(line['stat_value']),
-            'match_id': line.get('match_id', ''),
-            'start_time': line.get('match_start_time', '')
-        } for line in data['lines'] if 'player_name' in line])
-        
-    except Exception as api_error:
-        st.warning(f"Underdog API failed, trying HTML scrape... Error: {str(api_error)}")
-        try:
-            # Fallback to HTML scraping
-            response = requests.get(
-                "https://underdogfantasy.com/pick-em/higher-lower",
-                headers={'User-Agent': 'Mozilla/5.0'},
-                timeout=10
-            )
-            soup = BeautifulSoup(response.text, 'html.parser')
-            
-            players = []
-            for player in soup.select("div.player-line")[:25]:  # Limit to 25 players
-                try:
-                    players.append({
-                        'name': player.select_one("div.player-name").get_text(strip=True),
-                        'line': float(player.select_one("div.line-value").get_text(strip=True))
-                    })
-                except:
-                    continue
-                    
-            return pd.DataFrame(players) if players else None
-            
-        except Exception as html_error:
-            st.error(f"Underdog scraping failed: {str(html_error)}")
-            return None
+    except Exception as e:
+        st.error(f"Underdog scraping failed: {str(e)}")
+        return None
 
 def scrape_vlr_stats(days_back=7):
     """Robust VLR.gg scraper with error handling"""
     try:
         stats = []
-        for page in range(1, 4):  # Only first 3 pages for reliability
+        for page in range(1, 3):  # Only first 2 pages for reliability
             url = f"https://www.vlr.gg/stats/?page={page}"
-            response = requests.get(url, headers={'User-Agent': 'Mozilla/5.0'}, timeout=15)
+            response = requests.get(url, headers={'User-Agent': 'Mozilla/5.0'}, timeout=20)
             soup = BeautifulSoup(response.text, 'html.parser')
             
             for row in soup.select("tr.wf-table-inset.mod-overview"):
@@ -108,7 +83,7 @@ def analyze_data(underdog_df, vlr_df):
             
         # Calculate player stats
         player_stats = vlr_df.groupby('name')['kills'].agg(
-            ['mean', 'count', 'std']
+            ['mean', 'count']
         ).reset_index()
         player_stats = player_stats[player_stats['count'] >= 3]  # Min 3 matches
         
@@ -120,12 +95,9 @@ def analyze_data(underdog_df, vlr_df):
             how='left'
         ).dropna()
         
-        # Simple hit probability calculation (no scipy required)
-        merged['hit_prob'] = merged.apply(
-            lambda x: (x['mean'] - x['line']) / x['std'] if x['std'] > 0 else 0.5,
-            axis=1
-        )
-        merged['hit_prob'] = 1 / (1 + np.exp(-merged['hit_prob']))  # Sigmoid
+        # Simple hit probability calculation
+        merged['edge'] = merged['mean'] - merged['line']
+        merged['hit_prob'] = merged['edge'] / merged['mean'] + 0.5  # Normalized to 0-1 range
         
         merged['prediction'] = np.where(
             merged['hit_prob'] > 0.6, 
@@ -133,21 +105,21 @@ def analyze_data(underdog_df, vlr_df):
             np.where(merged['hit_prob'] > 0.5, 'WEAK HIT', 'UNDER')
         )
         
-        return merged.sort_values('hit_prob', ascending=False)
+        return merged[['name', 'line', 'mean', 'count', 'edge', 'hit_prob', 'prediction']]
         
     except Exception as e:
         st.warning(f"Analysis error: {str(e)}")
         return None
 
 # ======================
-# 3. STREAMLIT UI (NO MATPLOTLIB)
+# 3. STREAMLIT UI
 # ======================
 
-def color_hit_prob(val):
-    """Custom color formatter without matplotlib"""
-    if val > 0.6:
+def color_prediction(val):
+    """Custom color formatter for predictions"""
+    if val == 'STRONG HIT':
         return 'background-color: #4CAF50; color: white'  # Green
-    elif val > 0.5:
+    elif val == 'WEAK HIT':
         return 'background-color: #FFC107; color: black'  # Yellow
     else:
         return 'background-color: #F44336; color: white'  # Red
@@ -159,48 +131,49 @@ def main():
     )
     st.title("🎯 Valorant Line Prediction Engine")
     
+    # Sample data for fallback
+    SAMPLE_DATA = pd.DataFrame({
+        'name': ['PlayerA', 'PlayerB', 'PlayerC'],
+        'line': [18.5, 22.5, 20.0],
+        'mean': [19.2, 23.1, 21.5],
+        'count': [5, 5, 5],
+        'edge': [0.7, 0.6, 1.5],
+        'hit_prob': [0.72, 0.65, 0.58],
+        'prediction': ['STRONG HIT', 'STRONG HIT', 'WEAK HIT']
+    })
+    
     # Data loading section
-    with st.spinner("🔄 Loading live data from Underdog Fantasy and VLR.gg..."):
+    with st.spinner("🔄 Loading live data..."):
         underdog_data = scrape_underdog_lines()
         vlr_data = scrape_vlr_stats()
         
-        if underdog_data is not None and vlr_data is not None:
-            predictions = analyze_data(underdog_data, vlr_data)
-        else:
+        predictions = analyze_data(underdog_data, vlr_data)
+        if predictions is None or predictions.empty:
             st.warning("Using sample data due to scraping issues")
-            predictions = pd.DataFrame({
-                'name': ['PlayerA', 'PlayerB', 'PlayerC'],
-                'line': [18.5, 22.5, 20.0],
-                'mean': [19.2, 23.1, 21.5],
-                'count': [5, 5, 5],
-                'std': [1.2, 1.5, 1.3],
-                'hit_prob': [0.72, 0.65, 0.58],
-                'prediction': ['STRONG HIT', 'STRONG HIT', 'WEAK HIT']
-            })
+            predictions = SAMPLE_DATA
     
     # Main display
     st.subheader("🔥 Today's Best Bets")
     
-    if predictions is not None:
-        # Format hit probability as percentage
-        display_df = predictions.copy()
-        display_df['hit_prob'] = display_df['hit_prob'].apply(lambda x: f"{x:.0%}")
-        
-        # Display all predictions with custom styling
-        st.dataframe(
-            display_df.style.applymap(color_hit_prob, subset=['hit_prob']),
-            column_config={
-                'name': 'Player',
-                'line': 'Bet Line',
-                'mean': 'Avg Kills',
-                'count': 'Matches',
-                'std': 'Std Dev',
-                'hit_prob': 'Hit %',
-                'prediction': 'Verdict'
-            },
-            hide_index=True,
-            use_container_width=True
-        )
+    # Format display columns
+    display_df = predictions.copy()
+    display_df['hit_prob'] = display_df['hit_prob'].apply(lambda x: f"{x:.0%}")
+    
+    # Display predictions with styling
+    st.dataframe(
+        display_df.style.applymap(color_prediction, subset=['prediction']),
+        column_config={
+            'name': 'Player',
+            'line': 'Bet Line',
+            'mean': 'Avg Kills',
+            'count': 'Matches',
+            'edge': 'Edge',
+            'hit_prob': 'Hit %',
+            'prediction': 'Verdict'
+        },
+        hide_index=True,
+        use_container_width=True
+    )
     
     # Refresh controls
     if st.button("🔄 Refresh All Data", type="primary"):
