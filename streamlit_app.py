@@ -65,3 +65,11 @@ def scrape_player_stats(player_id):
     soup = BeautifulSoup(response.text, 'html.parser')
     # Add parsing logic here
     return {"kills": [24, 19, 27, 22, 18]}  # Replace with real data
+ # Placeholder for Selenium web scraping
+def get_underdog_line(player_name):
+    return 22.5  # Replace with actual scraping
+import csv
+def log_bet(player_name, prediction, actual):
+    with open('history.csv', 'a') as f:
+        writer = csv.writer(f)
+        writer.writerow([player_name, prediction, actual])
