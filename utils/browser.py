@@ -1,8 +1,17 @@
-import os
 from selenium import webdriver
-from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.chrome.options import Options
-from webdriver_manager.chrome import ChromeDriverManager
+from selenium.webdriver.chrome.service import Service
+import os
+
+def init_driver():
+    options = Options()
+    options.add_argument("--no-sandbox")
+    options.add_argument("--disable-dev-shm-usage")
+    options.add_argument("--headless=new")
+    options.binary_location = "/usr/bin/google-chrome"
+    
+    service = Service(executable_path="/usr/bin/chromedriver")
+    return webdriver.Chrome(service=service, options=options)
 
 def init_driver(headless=True):
     """
