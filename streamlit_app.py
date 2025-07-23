@@ -1,76 +1,24 @@
 import streamlit as st
 import pandas as pd
-import requests
-import os
-import sys
-import time
+from requests_html import HTMLSession
 from bs4 import BeautifulSoup
-from selenium import webdriver
-from selenium.webdriver.chrome.service import Service
-from selenium.webdriver.chrome.options import Options
-from webdriver_manager.chrome import ChromeDriverManager
+import time
 
 # ======================
-# 1. BROWSER INITIALIZATION
-# ======================
-def init_driver():
-    """Robust ChromeDriver initialization with multiple fallbacks"""
-    options = Options()
-    
-    # Essential configuration
-    options.add_argument("--no-sandbox")
-    options.add_argument("--disable-dev-shm-usage")
-    options.add_argument("--headless=new")
-    options.add_argument("--disable-gpu")
-    options.add_argument("--remote-debugging-port=9222")
-    
-    # Anti-bot measures
-    options.add_argument("--disable-blink-features=AutomationControlled")
-    options.add_experimental_option("excludeSwitches", ["enable-automation"])
-    options.add_experimental_option("useAutomationExtension", False)
-    
-    try:
-        # Attempt to use system Chrome in Docker environment
-        if os.path.exists("/usr/bin/google-chrome"):
-            options.binary_location = "/usr/bin/google-chrome"
-            service = Service("/usr/bin/chromedriver")
-            return webdriver.Chrome(service=service, options=options)
-        
-        # Fallback to webdriver-manager
-        return webdriver.Chrome(
-            service=Service(ChromeDriverManager().install()),
-            options=options
-        )
-        
-    except Exception as e:
-        st.error(f"Browser initialization failed: {str(e)}")
-        return None
-
-# ======================
-# 2. SCRAPING FUNCTIONS
+# 1. SCRAPING FUNCTIONS (Selenium-free)
 # ======================
 def scrape_underdog_lines():
-    """Scrape player kill lines from Underdog Fantasy"""
-    driver = None
+    """Scrape player kill lines using requests-html"""
+    session = HTMLSession()
     try:
-        driver = init_driver()
-        if not driver:
-            st.warning("Using sample data due to browser initialization failure")
-            return pd.DataFrame({
-                "name": ["Player1", "Player2", "Player3"],
-                "line": [22.5, 18.5, 20.0]
-            })
-            
-        driver.get("https://underdogfantasy.com/pick-em/higher-lower")
-        time.sleep(5)  # Wait for page to load
+        r = session.get("https://underdogfantasy.com/pick-em/higher-lower", timeout=20)
+        r.html.render(sleep=5, timeout=20)  # JavaScript rendering
         
         players = []
-        player_elements = driver.find_elements("css selector", "div.player-line")
-        
-        for elem in player_elements[:15]:  # Limit to 15 players
+        for elem in r.html.find('div.player-line', first=15):
             try:
-                name = elem.find_element("css selector", "div.player-name").text
-                line = float(elem.find_element("css selector", "div.line-value").text)
+                name = elem.find('div.player-name', first=True).text
+                line = float(elem.find('div.line-value', first=True).text)
                 players.append({"name": name, "line": line})
             except Exception as e:
                 st.warning(f"Failed to parse player: {str(e)}")
@@ -79,25 +27,21 @@ def scrape_underdog_lines():
         return pd.DataFrame(players) if players else pd.DataFrame({"name": [], "line": []})
         
     except Exception as e:
-        st.error(f"Scraping failed: {str(e)}")
+        st.error(f"Underdog scraping failed: {str(e)}")
         return pd.DataFrame({"name": [], "line": []})
-    finally:
-        if driver:
-            driver.quit()
 
 def scrape_vlr_stats():
     """Scrape recent match stats from VLR.gg"""
     try:
-        url = "https://www.vlr.gg/matches"
-        response = requests.get(url, timeout=10)
-        soup = BeautifulSoup(response.text, 'html.parser')
+        session = HTMLSession()
+        r = session.get("https://www.vlr.gg/matches", timeout=10)
         
         stats = []
-        for match in soup.select("div.wf-card.mod-match"):
-            for player in match.select("div.player"):
+        for match in r.html.find('div.wf-card.mod-match'):
+            for player in match.find('div.player'):
                 try:
-                    name = player.select_one("div.player-name").text.strip()
-                    kills = int(player.select_one("span.mod-kills").text)
+                    name = player.find('div.player-name', first=True).text.strip()
+                    kills = int(player.find('span.mod-kills', first=True).text)
                     stats.append({"name": name, "kills": kills})
                 except:
                     continue
@@ -109,7 +53,7 @@ def scrape_vlr_stats():
         return pd.DataFrame({"name": [], "kills": []})
 
 # ======================
-# 3. STREAMLIT APP
+# 2. STREAMLIT APP (Optimized)
 # ======================
 st.title("🔫 Valorant Player Kill Dashboard")
 
@@ -120,7 +64,7 @@ def load_data():
         stats_df = scrape_vlr_stats()
         
         if lines_df.empty or stats_df.empty:
-            st.warning("Some data sources failed - using partial data")
+            st.warning("Using sample data due to scraping issues")
             return pd.DataFrame({
                 "name": ["Sample1", "Sample2"],
                 "line": [22.5, 18.5],
@@ -134,14 +78,17 @@ def load_data():
             stats_df.groupby("name")["kills"].agg(["mean", "count"]).reset_index(),
             on="name", 
             how="left"
-        )
+        ).dropna()
         merged["edge"] = merged["mean"] - merged["line"]
         return merged.sort_values("edge", ascending=False)
 
+# ======================
+# 3. UI RENDERING
+# ======================
 df = load_data()
 
-# Display data
 if not df.empty:
+    # Display dataframe with styling
     st.dataframe(
         df.style
         .bar(subset=["edge"], align="mid", color=["#FF6B6B", "#4ECDC4"])
