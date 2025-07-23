@@ -1,148 +1,86 @@
 import streamlit as st
 import pandas as pd
-import requests
-from bs4 import BeautifulSoup
-from datetime import datetime, timedelta
-import numpy as np
-from scipy import stats
-import pytz
+import time
 from selenium import webdriver
+from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.chrome.options import Options
 from webdriver_manager.chrome import ChromeDriverManager
+from pyvirtualdisplay import Display
+from bs4 import BeautifulSoup
+import pytz
+from datetime import datetime
 
-# ========== [1. Enhanced Scraping with Selenium] ==========
 def setup_selenium():
+    """Robust Selenium setup that works on Streamlit Cloud"""
+    try:
+        # For Linux environments (like Streamlit Cloud)
+        display = Display(visible=0, size=(1920, 1080))
+        display.start()
+    except:
+        pass  # Will work locally without this
+
     chrome_options = Options()
     chrome_options.add_argument("--headless")
-    chrome_options.add_argument("--disable-gpu")
     chrome_options.add_argument("--no-sandbox")
-    return webdriver.Chrome(ChromeDriverManager().install(), options=chrome_options)
+    chrome_options.add_argument("--disable-dev-shm-usage")
+    chrome_options.add_argument("--disable-gpu")
+    chrome_options.add_argument("--window-size=1920x1080")
+
+    # Fixed ChromeDriver version for stability
+    driver = webdriver.Chrome(
+        service=Service(ChromeDriverManager(version="114.0.5735.90").install()),
+        options=chrome_options
+    )
+    return driver
 
 def scrape_underdog_with_selenium():
-    driver = setup_selenium()
+    """More resilient scraping function"""
     try:
+        driver = setup_selenium()
         driver.get("https://underdogfantasy.com/pick-em/higher-lower/all/val")
-        time.sleep(5)  # Wait for JS rendering
-        soup = BeautifulSoup(driver.page_source, 'html.parser')
+        time.sleep(5)  # Wait for page to load
         
+        # More robust element selection
+        soup = BeautifulSoup(driver.page_source, 'html.parser')
         players = []
-        for card in soup.select('div.player-line'):
+        
+        for card in soup.select('div[class*="player-line"]'):
             try:
+                name = card.select_one('div[class*="player-name"]').text.strip()
+                line = float(card.select_one('div[class*="line-value"]').text.strip())
+                team = card.select_one('div[class*="player-team"]').text.strip()
+                
                 players.append({
-                    'name': card.select_one('div.player-name').text.strip(),
-                    'line': float(card.select_one('div.line-value').text.strip()),
-                    'team': card.select_one('div.player-team').text.strip(),
+                    'name': name,
+                    'line': line,
+                    'team': team,
                     'scraped_at': datetime.now(pytz.UTC)
                 })
-            except:
+            except Exception as e:
+                st.warning(f"Skipping player due to error: {str(e)}")
                 continue
+                
         return pd.DataFrame(players)
-    finally:
-        driver.quit()
-
-# ========== [2. VLR.gg Match Scraper] ==========
-def scrape_vlr_matches():
-    try:
-        url = "https://www.vlr.gg/matches"
-        response = requests.get(url, headers={'User-Agent': 'Mozilla/5.0'}, timeout=20)
-        soup = BeautifulSoup(response.text, 'html.parser')
         
-        matches = []
-        for match in soup.select('a.match-item'):
-            try:
-                matches.append({
-                    'team1': match.select_one('div.mod-1').text.strip(),
-                    'team2': match.select_one('div.mod-2').text.strip(),
-                    'event': match.select_one('div.match-item-event').text.strip(),
-                    'time': match.select_one('div.match-item-time').text.strip(),
-                    'link': f"https://www.vlr.gg{match['href']}"
-                })
-            except:
-                continue
-        return pd.DataFrame(matches)
     except Exception as e:
-        st.error(f"VLR scrape failed: {str(e)}")
+        st.error(f"Scraping failed: {str(e)}")
         return pd.DataFrame()
+    finally:
+        if 'driver' in locals():
+            driver.quit()
 
-# ========== [3. Prediction Engine] ==========
-def calculate_predictions(lines_df, matches_df):
-    predictions = []
-    for _, row in lines_df.iterrows():
-        try:
-            # Get matchup data
-            match = matches_df[
-                (matches_df['team1'].str.contains(row['team'])) | 
-                (matches_df['team2'].str.contains(row['team']))
-            ].iloc[0]
-            
-            opponent = match['team2'] if match['team1'] == row['team'] else match['team1']
-            
-            # Advanced prediction model (simplified example)
-            mu = row['line'] * 1.1  # Expected mean
-            sigma = 2.5  # Standard deviation
-            prob_over = 1 - stats.norm.cdf(row['line'], mu, sigma)
-            
-            predictions.append({
-                'Player': row['name'],
-                'Line': row['line'],
-                'Team': row['team'],
-                'Opponent': opponent,
-                'Event': match['event'],
-                'Time': match['time'],
-                'P(OVER)': f"{prob_over:.0%}",
-                'Verdict': "OVER" if prob_over > 0.6 else "UNDER",
-                'Confidence': "High" if abs(prob_over - 0.5) > 0.3 else "Medium"
-            })
-        except:
-            continue
-    return pd.DataFrame(predictions)
-
-# ========== [4. Chatbot System] ==========
-class EsportsAnalyst:
-    def generate_response(self, query, predictions):
-        if "over" in query.lower() or "under" in query.lower():
-            filtered = predictions[predictions['Verdict'] == query.upper().split()[-1]]
-            return filtered.to_markdown()
-        elif "player" in query.lower():
-            player = query.split()[-1]
-            return predictions[predictions['Player'] == player].to_markdown()
-        else:
-            return "Ask about: 'OVER predictions', 'UNDER predictions', or 'Player [name]'"
-
-# ========== [5. Streamlit UI] ==========
 def main():
-    st.set_page_config(layout="wide", page_title="VALORANT Line Predictor Pro")
+    st.title("eSports Betting AI")
     
-    # Data Loading
-    with st.spinner("Loading live data..."):
-        lines = scrape_underdog_with_selenium()
-        matches = scrape_vlr_matches()
-        predictions = calculate_predictions(lines, matches)
-        analyst = EsportsAnalyst()
-    
-    # Main Display
-    st.title("🔫 VALORANT Line Predictor Pro")
-    st.dataframe(
-        predictions.style.applymap(
-            lambda x: "background-color: #4CAF50" if x == "OVER" else "background-color: #F44336",
-            subset=['Verdict']
-        ),
-        use_container_width=True
-    )
-    
-    # Chatbot
-    st.sidebar.header("🤖 Esports Analyst")
-    if "chat" not in st.session_state:
-        st.session_state.chat = []
-    
-    for msg in st.session_state.chat:
-        st.sidebar.write(msg)
-    
-    if prompt := st.sidebar.text_input("Ask about predictions"):
-        response = analyst.generate_response(prompt, predictions)
-        st.session_state.chat.append(f"You: {prompt}")
-        st.session_state.chat.append(f"Bot: {response}")
-        st.sidebar.rerun()
+    if st.button("Scrape Underdog Data"):
+        with st.spinner("Scraping data..."):
+            df = scrape_underdog_with_selenium()
+            
+        if not df.empty:
+            st.success(f"Successfully scraped {len(df)} players!")
+            st.dataframe(df)
+        else:
+            st.error("No data was scraped. Check the logs for errors.")
 
 if __name__ == "__main__":
     main()
