@@ -1,18 +1,16 @@
-# Core Data Processing
+# Core
 streamlit>=1.35.0
 pandas>=2.2.2
 numpy>=1.26.4
-python-dateutil>=2.9.0
 
-# Web Scraping
+# Scraping
 requests>=2.32.3
 beautifulsoup4>=4.13.4
 lxml>=5.2.2
-soupsieve>=2.5  # Required by beautifulsoup4
 
-# Chatbot & AI
-openai>=1.12.0  # For the esports stats chatbot
-tiktoken>=0.6.0  # Optional: For token counting
+# Chatbot
+openai>=1.12.0
 
-# Data Analysis
-scipy>=1.13.0  # For advanced stats calculations
+# Analytics
+scipy>=1.13.0
+python-dateutil>=2.9.0
