@@ -1,7 +1,7 @@
 import streamlit as st
 import pandas as pd
 import requests
-from bs4 import BeautifulSoup
+from bs4 import BeautifulSoup  # Fixed typo (lib4 → bs4)
 
 # Title
 st.title("🎯 Valorant Kill Line Predictor")
