@@ -120,11 +120,13 @@ def analyze_data(underdog_df, vlr_df):
             how='left'
         ).dropna()
         
-        # Calculate predictions
-        merged['hit_prob'] = 1 - merged.apply(
-            lambda x: norm.cdf(x['line'], x['mean'], x['std']),
+        # Simple hit probability calculation (no scipy required)
+        merged['hit_prob'] = merged.apply(
+            lambda x: (x['mean'] - x['line']) / x['std'] if x['std'] > 0 else 0.5,
             axis=1
         )
+        merged['hit_prob'] = 1 / (1 + np.exp(-merged['hit_prob']))  # Sigmoid
+        
         merged['prediction'] = np.where(
             merged['hit_prob'] > 0.6, 
             'STRONG HIT',
@@ -138,8 +140,17 @@ def analyze_data(underdog_df, vlr_df):
         return None
 
 # ======================
-# 3. STREAMLIT UI
+# 3. STREAMLIT UI (NO MATPLOTLIB)
 # ======================
+
+def color_hit_prob(val):
+    """Custom color formatter without matplotlib"""
+    if val > 0.6:
+        return 'background-color: #4CAF50; color: white'  # Green
+    elif val > 0.5:
+        return 'background-color: #FFC107; color: black'  # Yellow
+    else:
+        return 'background-color: #F44336; color: white'  # Red
 
 def main():
     st.set_page_config(
@@ -171,40 +182,30 @@ def main():
     st.subheader("🔥 Today's Best Bets")
     
     if predictions is not None:
-        # Prediction tiers
-        strong_hits = predictions[predictions['prediction'] == 'STRONG HIT']
-        weak_hits = predictions[predictions['prediction'] == 'WEAK HIT']
+        # Format hit probability as percentage
+        display_df = predictions.copy()
+        display_df['hit_prob'] = display_df['hit_prob'].apply(lambda x: f"{x:.0%}")
         
-        # Display strong hits
-        st.markdown("### 💎 Strong Plays (60%+ Hit Probability)")
+        # Display all predictions with custom styling
         st.dataframe(
-            strong_hits.style
-            .background_gradient(subset=['hit_prob'], cmap='Greens')
-            .format({'line': '{:.1f}', 'mean': '{:.1f}', 'hit_prob': '{:.0%}'}),
+            display_df.style.applymap(color_hit_prob, subset=['hit_prob']),
             column_config={
                 'name': 'Player',
                 'line': 'Bet Line',
                 'mean': 'Avg Kills',
                 'count': 'Matches',
+                'std': 'Std Dev',
                 'hit_prob': 'Hit %',
                 'prediction': 'Verdict'
             },
             hide_index=True,
             use_container_width=True
         )
-        
-        # Display weak hits
-        st.markdown("### ⚠️ Marginal Plays (50-60% Hit Probability)")
-        st.dataframe(
-            weak_hits.style
-            .background_gradient(subset=['hit_prob'], cmap='YlOrBr')
-            .format({'line': '{:.1f}', 'mean': '{:.1f}', 'hit_prob': '{:.0%}'}),
-            hide_index=True,
-            use_container_width=True
-        )
     
     # Refresh controls
-    st.button("🔄 Refresh All Data", type="primary")
+    if st.button("🔄 Refresh All Data", type="primary"):
+        st.rerun()
+    
     st.caption(f"Last updated: {datetime.now().strftime('%Y-%m-%d %H:%M')}")
 
 if __name__ == "__main__":
