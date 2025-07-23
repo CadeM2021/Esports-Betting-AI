@@ -1,25 +1,38 @@
 # Core Requirements
-streamlit==1.35.0
+streamlit==1.36.0  # Updated to latest stable
 pandas==2.2.2
 numpy==1.26.4
 python-dateutil==2.9.0
 pytz==2024.1
+typing-extensions==4.11.0  # For better type hints
 
-# Web Scraping
+# Web Scraping Stack
 httpx==0.27.0
 beautifulsoup4==4.12.3
 lxml==5.2.2
 selenium==4.21.0
 webdriver-manager==4.0.1
 pyvirtualdisplay==3.0
+fake-useragent==1.4.0  # For realistic user-agent rotation
 
-# Data Analysis & AI
+# Data Science & AI
 scipy==1.13.0
 statsmodels==0.14.1
-openai==1.12.0  # For DeepSeek integration
-tiktoken==0.6.0  # For chat tokenization
+openai==1.12.0
+tiktoken==0.6.0
+sentence-transformers==2.7.0  # For semantic search in chatbot
 
-# Additional Utilities
-cachetools==5.3.3  # For caching
-python-dotenv==1.0.0  # For environment variables
-loguru==0.7.2  # Enhanced logging
+# Performance & Utilities
+cachetools==5.3.3
+python-dotenv==1.0.0
+loguru==0.7.2
+orjson==3.10.1  # Faster JSON processing
+uvicorn==0.29.0  # ASGI server for potential API expansion
+
+# Error Handling & Monitoring
+sentry-sdk==1.45.0  # Error tracking
+backoff==2.2.1  # For request retries
+
+# Security
+python-keyring==24.3.0  # Secure credential storage
+cryptography==42.0.5  # Encryption
