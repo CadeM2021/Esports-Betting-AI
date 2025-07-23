@@ -31,7 +31,64 @@ def safe_scrape(url, css_selector):
     except Exception as e:
         st.warning(f"⚠️ Scraping {url.split('//')[1].split('/')[0]} failed: {str(e)}")
         return []
+# ======================
+# NEW FUNCTIONS TO ADD
+# ======================
 
+def get_upcoming_matches():
+    """Scrape upcoming matches from VLR.gg"""
+    try:
+        matches = []
+        elements = safe_scrape("https://www.vlr.gg/matches", "a.match-item")
+        
+        for elem in elements[:12]:  # Get next 12 matches
+            try:
+                team1 = elem.select_one(".match-item-vs-team-name.mod-1").text.strip()
+                team2 = elem.select_one(".match-item-vs-team-name.mod-2").text.strip()
+                time = elem.select_one(".match-item-time").text.strip()
+                event = elem.select_one(".match-item-event").text.strip()
+                
+                matches.append({
+                    "team1": team1,
+                    "team2": team2,
+                    "time": time,
+                    "event": event,
+                    "link": f"https://www.vlr.gg{elem['href']}"
+                })
+            except Exception as e:
+                continue
+                
+        return pd.DataFrame(matches)
+    except Exception as e:
+        st.error(f"Match schedule error: {str(e)}")
+        return pd.DataFrame()
+
+def calculate_value_bets(players_df, matches_df):
+    """Identify best bets for upcoming matches"""
+    try:
+        # Merge with upcoming matches
+        merged = pd.merge(
+            players_df,
+            matches_df,
+            how="cross"
+        )
+        
+        # Filter players actually in these matches
+        merged = merged[
+            merged.apply(lambda x: 
+                x['name'] in x['team1'] or 
+                x['name'] in x['team2'],
+                axis=1
+            )
+        ]
+        
+        # Calculate expected value
+        merged["expected_value"] = merged["edge"] * merged["count"]
+        
+        return merged.sort_values(["expected_value", "edge"], ascending=False)
+    except Exception as e:
+        st.error(f"Analysis error: {str(e)}")
+        return pd.DataFrame()
 def get_live_data():
     """Get combined data from all sources with fallback"""
     try:
