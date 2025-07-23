@@ -1,4 +1,4 @@
-# Core Dependencies
+# Core Requirements
 streamlit==1.35.0
 pandas==2.2.2
 numpy==1.26.4
@@ -13,9 +13,13 @@ selenium==4.21.0
 webdriver-manager==4.0.1
 pyvirtualdisplay==3.0
 
-# Data Analysis
+# Data Analysis & AI
 scipy==1.13.0
 statsmodels==0.14.1
+openai==1.12.0  # For DeepSeek integration
+tiktoken==0.6.0  # For chat tokenization
 
-# Logging
-logging==0.4.9.6
+# Additional Utilities
+cachetools==5.3.3  # For caching
+python-dotenv==1.0.0  # For environment variables
+loguru==0.7.2  # Enhanced logging
