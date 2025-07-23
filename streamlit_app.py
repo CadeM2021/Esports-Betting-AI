@@ -56,3 +56,12 @@ st.markdown("""
 2. **Auto-fetch Underdog lines** (Selenium/API).
 3. **Track historical bets** to improve hit rate.
 """)
+from bs4 import BeautifulSoup
+import requests
+
+def scrape_player_stats(player_id):
+    url = f"https://www.vlr.gg/player/{player_id}"
+    response = requests.get(url)
+    soup = BeautifulSoup(response.text, 'html.parser')
+    # Add parsing logic here
+    return {"kills": [24, 19, 27, 22, 18]}  # Replace with real data
