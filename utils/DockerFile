@@ -1,52 +1,22 @@
-# Use official Python 3.11 slim image
 FROM python:3.11-slim
 
-# 1. Install system dependencies
+# Install minimal dependencies
 RUN apt-get update && apt-get install -y \
-    wget gnupg unzip \
-    # Chrome dependencies
-    libnss3 libgconf-2-4 libfontconfig1 fonts-liberation \
-    # X11 virtual frame buffer
-    xvfb libxss1 libxtst6 libxkbcommon0 \
-    # Clean up
+    wget \
+    libnss3 \
+    libgconf-2-4 \
+    libfontconfig1 \
+    fonts-liberation \
     && rm -rf /var/lib/apt/lists/*
 
-# 2. Install Google Chrome (stable version)
-RUN wget -q -O - https://dl-ssl.google.com/linux/linux_signing_key.pub | apt-key add - \
-    && echo "deb [arch=amd64] http://dl.google.com/linux/chrome/deb/ stable main" > /etc/apt/sources.list.d/google-chrome.list \
-    && apt-get update \
-    && apt-get install -y google-chrome-stable \
-    && rm -rf /var/lib/apt/lists/*
-
-# 3. Install matching Chromedriver (auto-version detection)
-RUN CHROME_MAJOR=$(google-chrome --version | awk '{print $3}' | cut -d'.' -f1) \
-    && wget -q https://chromedriver.storage.googleapis.com/LATEST_RELEASE_$CHROME_MAJOR -O version.txt \
-    && wget -q https://chromedriver.storage.googleapis.com/$(cat version.txt)/chromedriver_linux64.zip \
-    && unzip chromedriver_linux64.zip \
-    && mv chromedriver /usr/bin/chromedriver \
-    && chmod +x /usr/bin/chromedriver \
-    && rm chromedriver* version.txt
-
-# 4. Set up working directory
 WORKDIR /app
-
-# 5. Copy requirements first for better caching
-COPY requirements.txt .
-
-# 6. Install Python dependencies
-RUN pip install --no-cache-dir -r requirements.txt
-
-# 7. Copy application code
 COPY . .
 
-# 8. Environment configuration
+# Install Python dependencies
+RUN pip install --no-cache-dir -r requirements.txt
+
+# Environment variables
 ENV DISPLAY=:99 \
-    CHROME_BIN=/usr/bin/google-chrome \
-    CHROME_DRIVER=/usr/bin/chromedriver \
     PYTHONUNBUFFERED=1
 
-# 9. Run the application
-CMD ["streamlit", "run", "streamlit_app.py", \
-    "--server.port=8501", \
-    "--server.address=0.0.0.0", \
-    "--server.headless=true"]
+CMD ["streamlit", "run", "streamlit_app.py"]
