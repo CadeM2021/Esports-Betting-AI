@@ -4,3 +4,5 @@ requests==2.32.3
 pandas==2.2.2
 streamlit==1.35.0
 numpy==1.26.4  # Changed from 2.0.2 to resolve conflicts
+selenium==4.21.0
+webdriver-manager==4.0.1
