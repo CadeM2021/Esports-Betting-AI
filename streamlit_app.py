@@ -23,7 +23,14 @@ def scrape_underdog_lines():
     options = webdriver.ChromeOptions()
     options.add_argument("--headless")
     driver = webdriver.Chrome(options=options)
-    
+    def scrape_underdog_lines():
+    driver = init_driver()
+    try:
+        driver.get("https://underdogfantasy.com")
+        # Add your scraping logic here
+        return pd.DataFrame()  # Return your scraped data
+    finally:
+        driver.quit()
     try:
         driver.get("https://underdogfantasy.com/pick-em/higher-lower")
         time.sleep(5)  # Wait for JS loading
