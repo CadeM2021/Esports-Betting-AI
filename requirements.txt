@@ -9,17 +9,9 @@ pytz==2024.1
 requests==2.32.3
 beautifulsoup4==4.12.3
 lxml==5.2.2
-soupsieve==2.5
 selenium==4.21.0
 webdriver-manager==4.0.1
 
-# For Streamlit Cloud compatibility
+# For Streamlit Cloud
 pyvirtualdisplay==3.0
 xvfbwrapper==0.2.9
-
-# Data Analysis
-scipy==1.13.0
-statsmodels==0.14.1
-
-# Optional
-openai==1.12.0
