@@ -19,3 +19,10 @@ statsmodels==0.14.1
 
 # Chat (optional - remove if not needed)
 openai==1.12.0
+
+# Cloud Deployment Considerations
+# ------------------------------
+# For headless environments (like cloud servers), add these:
+# xvfbwrapper==0.2.9
+# fontconfig==2.14.2
+# fonts-liberation==2.1.5
