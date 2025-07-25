@@ -1,323 +1,264 @@
-# streamlit_app.py
+# valorant_analyst.py
 import streamlit as st
 import pandas as pd
 import numpy as np
-from datetime import datetime, timezone
+import httpx
+from bs4 import BeautifulSoup
+import time
+import random
+from fake_useragent import UserAgent
 from scipy.stats import norm
 import logging
+from datetime import datetime, timezone
+import plotly.express as px
+from selenium import webdriver
+from selenium.webdriver.chrome.options import Options
+from selenium.webdriver.chrome.service import Service
+from webdriver_manager.chrome import ChromeDriverManager
 
 # ------------------------------
-# CONFIG
+# CONFIGURATION
 # ------------------------------
 st.set_page_config(
-    page_title="VALORANT GC Match Analyst",
+    page_title="VALORANT PROPS LAB",
     page_icon="🔫",
     layout="wide",
     initial_sidebar_state="expanded"
 )
 
-# ------------------------------
-# Logging
-# ------------------------------
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
-
-# ------------------------------
-# Session State
-# ------------------------------
-if 'predictions' not in st.session_state:
-    st.session_state.predictions = pd.DataFrame()
-if 'match_history' not in st.session_state:
-    st.session_state.match_history = pd.DataFrame()
-if 'chat_history' not in st.session_state:
-    st.session_state.chat_history = []
-
-# ------------------------------
-# Preloaded Match Data
-# ------------------------------
-def load_default_match():
-    players = [
-        # MIBR GC Players
-        {"name": "Mel", "team": "MIBR GC", "line": 38.5, "position": "Duelist"},
-        {"name": "Bizerra", "team": "MIBR GC", "line": 47.5, "position": "Initiator"},
-        {"name": "lissa", "team": "MIBR GC", "line": 36.0, "position": "Controller"},
-        {"name": "srN", "team": "MIBR GC", "line": 48.5, "position": "Sentinel"},
-        {"name": "bstrdd", "team": "MIBR GC", "line": 47.0, "position": "Flex"},
-        
-        # Team Liquid Brazil Players
-        {"name": "Jelly", "team": "Team Liquid Brazil", "line": 55.5, "position": "Duelist"},
-        {"name": "Joojina", "team": "Team Liquid Brazil", "line": 43.5, "position": "Initiator"},
-        {"name": "sayuri", "team": "Team Liquid Brazil", "line": 32.5, "position": "Controller"},
-        {"name": "isaa", "team": "Team Liquid Brazil", "line": 41.5, "position": "Sentinel"},
-        {"name": "daiki", "team": "Team Liquid Brazil", "line": 46.5, "position": "Flex"},
-    ]
-    
-    for player in players:
-        player.update({
-            "opponent": "Team Liquid Brazil" if player["team"] == "MIBR GC" else "MIBR GC",
-            "event": "VALORANT Game Changers",
-            "added_at": datetime.now(timezone.utc),
-            "map_count": 3  # Best of 5 but lines are for first 3 maps
-        })
-    
-    return pd.DataFrame(players)
-
-# ------------------------------
-# Prediction Model
-# ------------------------------
-def calculate_predictions(players_df, match_history_df):
-    if players_df.empty:
-        return pd.DataFrame()
-
-    # Team strength adjustment based on odds
-    team_strength = {
-        "Team Liquid Brazil": 1.14,
-        "MIBR GC": 5.00
+# CSS Injection for Pro UI
+st.markdown("""
+<style>
+    .stDataFrame {
+        background-color: #0e1117 !important;
+        border-radius: 10px !important;
     }
-    
-    predictions = []
-    for _, row in players_df.iterrows():
-        try:
-            # Base parameters
-            base_line = row['line']
-            position = row.get('position', 'Flex')
-            
-            # Position adjustments
-            position_factors = {
-                "Duelist": 1.15,
-                "Initiator": 1.05,
-                "Controller": 0.95,
-                "Sentinel": 0.90,
-                "Flex": 1.00
-            }
-            
-            # Opponent strength adjustment
-            opponent_factor = team_strength[row['opponent']] / team_strength[row['team']]
-            
-            # Calculate adjusted mean
-            mu = base_line * position_factors.get(position, 1.0) * (1 + (1 - opponent_factor) * 0.1)
-            
-            # Dynamic sigma based on position and opponent
-            sigma = {
-                "Duelist": 3.5,
-                "Initiator": 3.0,
-                "Controller": 2.5,
-                "Sentinel": 2.0,
-                "Flex": 3.0
-            }.get(position, 3.0) * (1 + (opponent_factor - 1) * 0.2)
-            
-            # Calculate probability
-            p_over = 1 - norm.cdf(base_line, mu, sigma)
-            
-            # Confidence calculation
-            confidence_score = abs(p_over - 0.5) * 2
-            confidence = (
-                "⭐⭐⭐" if confidence_score > 0.3 else
-                "⭐⭐" if confidence_score > 0.15 else
-                "⭐"
-            )
-            
-            # Add historical data if available
-            historical_avg = ""
-            if not match_history_df.empty and row['name'] in match_history_df['name'].values:
-                hist_data = match_history_df[match_history_df['name'] == row['name']]
-                historical_avg = f"\n📊 Hist. Avg: {hist_data['kills'].mean():.1f} (±{hist_data['kills'].std():.1f})"
-            
-            predictions.append({
-                "Player": row['name'],
-                "Team": row['team'],
-                "Position": position,
-                "Opponent": row['opponent'],
-                "Line": base_line,
-                "P(OVER)": f"{p_over:.0%}",
-                "Verdict": "✅ OVER" if p_over > 0.55 else "❌ UNDER",
-                "Confidence": confidence,
-                "Details": f"μ={mu:.1f}, σ={sigma:.1f}{historical_avg}"
-            })
-
-        except Exception as e:
-            logger.warning(f"Prediction error for {row['name']}: {e}")
-            continue
-
-    return pd.DataFrame(predictions)
+    .stButton>button {
+        background: linear-gradient(90deg, #ff4d4d, #f9cb28) !important;
+        border: none !important;
+    }
+    .stChatInput {
+        bottom: 20px;
+        position: fixed !important;
+    }
+    .stTabs [data-baseweb="tab-list"] {
+        gap: 8px;
+    }
+    .stTabs [data-baseweb="tab"] {
+        padding: 8px 16px;
+        border-radius: 8px 8px 0 0 !important;
+    }
+</style>
+""", unsafe_allow_html=True)
 
 # ------------------------------
-# Enhanced Analyst Bot
+# SCRAPER MODULE
 # ------------------------------
-class EsportsAnalyst:
+class ValorantDataScraper:
     def __init__(self):
-        self.knowledge_base = {
-            "model": "Our model considers:\n"
-                    "- Player position (Duelists expected to frag more)\n"
-                    "- Team strength (TLB favored 1.14 vs MIBR 5.00)\n"
-                    "- Normal distribution around adjusted mean\n\n"
-                    "Duelists get +15% expectation, Controllers -5%",
-            "confidence": "Confidence stars:\n"
-                        "⭐ = 50-65% certainty\n"
-                        "⭐⭐ = 65-80%\n"
-                        "⭐⭐⭐ = 80%+",
-            "matchup": "TLB vs MIBR GC Key Factors:\n"
-                      "- Team Liquid Brazil heavily favored (1.14 odds)\n"
-                      "- Best of 5 but lines are for first 3 maps\n"
-                      "- Expect TLB players to hit OVER more consistently",
-            "help": "Ask me about:\n"
-                   "- Specific player predictions\n"
-                   "- Team matchup analysis\n"
-                   "- How our model works\n"
-                   "- Confidence explanations\n"
-                   "- Historical performance (if data loaded)"
+        self.session = httpx.Client(
+            headers={'User-Agent': UserAgent().random},
+            timeout=30,
+            follow_redirects=True
+        )
+        self.rate_limit = 3
+        self.last_request = 0
+
+    def _delay(self):
+        elapsed = time.time() - self.last_request
+        if elapsed < self.rate_limit:
+            time.sleep(self.rate_limit - elapsed + random.uniform(0.5, 1.5))
+        self.last_request = time.time()
+
+    def scrape_vlr_match(self, match_url):
+        try:
+            self._delay()
+            response = self.session.get(match_url)
+            response.raise_for_status()
+            
+            soup = BeautifulSoup(response.text, 'lxml')
+            players = []
+            
+            # Actual scraping logic for VLR.gg
+            for team in soup.find_all('div', class_='vm-stats-game'):
+                team_name = team.find('div', class_='team-name').text.strip()
+                
+                for player_row in team.find_all('tr')[1:]:
+                    cols = player_row.find_all('td')
+                    players.append({
+                        'name': cols[0].find('div', class_='text-of').text.strip(),
+                        'team': team_name,
+                        'kills': float(cols[2].text.strip()),
+                        'deaths': float(cols[3].text.strip()),
+                        'acs': float(cols[8].text.strip()),
+                        'map': 'Map 1'
+                    })
+            
+            return pd.DataFrame(players)
+            
+        except Exception as e:
+            st.error(f"Scraping failed: {str(e)}")
+            return pd.DataFrame()
+
+    def stealth_scrape(self, url):
+        """When normal scraping fails"""
+        options = Options()
+        options.add_argument("--headless=new")
+        options.add_argument("--disable-blink-features=AutomationControlled")
+        driver = webdriver.Chrome(
+            service=Service(ChromeDriverManager().install()),
+            options=options
+        )
+        
+        try:
+            driver.get(url)
+            time.sleep(5)  # Let JavaScript render
+            soup = BeautifulSoup(driver.page_source, 'lxml')
+            # Add parsing logic here
+            return pd.DataFrame()
+        finally:
+            driver.quit()
+
+# ------------------------------
+# PREDICTION ENGINE
+# ------------------------------
+class PropsPredictor:
+    def __init__(self):
+        self.team_strength = {
+            "Team Liquid Brazil": 1.14,
+            "MIBR GC": 5.00
+        }
+        
+        self.position_factors = {
+            "Duelist": 1.15,
+            "Initiator": 1.05,
+            "Controller": 0.95,
+            "Sentinel": 0.90,
+            "Flex": 1.00
         }
 
-    def generate_response(self, question, preds_df, match_history_df):
-        question = question.lower().strip()
-        
-        # Check knowledge base first
-        for key in self.knowledge_base:
-            if key in question:
-                return self.knowledge_base[key]
-        
-        # Player-specific queries
-        if not preds_df.empty:
-            player_query = next((name for name in preds_df['Player'].unique() if name.lower() in question), None)
-            if player_query:
-                player_data = preds_df[preds_df['Player'] == player_query].iloc[0]
-                response = [
-                    f"**{player_query} Prediction** ({player_data['Team']} {player_data['Position']})",
-                    f"Line: {player_data['Line']} kills",
-                    f"Verdict: {player_data['Verdict']} ({player_data['P(OVER)']})",
-                    f"Confidence: {player_data['Confidence']}",
-                    f"Model Details: {player_data['Details']}"
-                ]
+    def calculate_predictions(self, players_df):
+        predictions = []
+        for _, row in players_df.iterrows():
+            try:
+                # Core calculation
+                mu = row['line'] * self.position_factors.get(row['position'], 1.0)
+                mu *= (1 + (1 - (self.team_strength[row['opponent']] / self.team_strength[row['team']])) * 0.1
                 
-                # Add historical data if available
-                if not match_history_df.empty and player_query in match_history_df['name'].values:
-                    hist = match_history_df[match_history_df['name'] == player_query]
-                    response.append(f"\n**Last {len(hist)} matches**: Avg {hist['kills'].mean():.1f} kills")
+                sigma = {
+                    "Duelist": 3.5,
+                    "Initiator": 3.0,
+                    "Controller": 2.5,
+                    "Sentinel": 2.0,
+                    "Flex": 3.0
+                }.get(row['position'], 3.0)
                 
-                return "\n".join(response)
-        
-        # Team analysis
-        if any(team in question for team in ["tl", "tl brazil", "team liquid"]):
-            return (
-                "**Team Liquid Brazil Analysis**:\n"
-                "- Heavy favorites (1.14 odds)\n"
-                "- Expect consistent performance across maps\n"
-                "- Jelly (Duelist) has highest line at 55.5\n"
-                "- Team likely to control pace of match"
-            )
-        
-        if any(team in question for team in ["mibr", "mibr gc"]):
-            return (
-                "**MIBR GC Analysis**:\n"
-                "- Underdogs (5.00 odds)\n"
-                "- May struggle against TLB's coordination\n"
-                "- srN (Sentinel) has highest line at 48.5\n"
-                "- Need standout performances to compete"
-            )
-        
-        return (
-            "I'm not sure I understand. Try asking about:\n"
-            "- Specific players (Mel, Jelly, etc.)\n"
-            "- Team Liquid Brazil or MIBR GC analysis\n"
-            "- How the model works\n"
-            "- Confidence explanations"
+                p_over = 1 - norm.cdf(row['line'], mu, sigma)
+                edge = p_over - 0.5
+                
+                predictions.append({
+                    "Player": row['name'],
+                    "Team": row['team'],
+                    "Position": row['position'],
+                    "Line": row['line'],
+                    "P(OVER)": p_over,
+                    "Edge": edge,
+                    "Confidence": min(3, max(1, int(abs(edge) * 10)) * "⭐",
+                    "Mu": mu,
+                    "Sigma": sigma
+                })
+                
+            except Exception as e:
+                st.warning(f"Error processing {row['name']}: {str(e)}")
+                continue
+
+        return pd.DataFrame(predictions)
+
+# ------------------------------
+# UI COMPONENTS
+# ------------------------------
+def render_kill_matrix(df):
+    """Grid layout from your screenshot"""
+    cols = st.columns(4)
+    for idx, (_, row) in enumerate(df.iterrows()):
+        with cols[idx % 4]:
+            with st.container(border=True):
+                st.markdown(f"""
+                **{row['Player']}**  
+                *{row['Team']} {row['Position']}*  
+                ### {row['Line']}  
+                📊 {row['P(OVER)']:.0%} | {row['Confidence']}
+                """)
+                
+                fig = px.histogram(
+                    x=np.random.normal(row['Mu'], row['Sigma'], 1000),
+                    nbins=20,
+                    range_x=[row['Mu']-3*row['Sigma'], row['Mu']+3*row['Sigma']]
+                )
+                fig.add_vline(x=row['Line'], line_dash="dash")
+                st.plotly_chart(fig, use_container_width=True)
+
+def props_lab_view(df):
+    """Optimizer panel"""
+    with st.expander("🔥 PROPS LAB OPTIMIZER", expanded=True):
+        st.dataframe(
+            df.sort_values("Edge", ascending=False),
+            column_config={
+                "P(OVER)": st.column_config.ProgressColumn(
+                    format="%.0f%%",
+                    min_value=0,
+                    max_value=1
+                ),
+                "Edge": st.column_config.NumberColumn(
+                    format="+%.2f",
+                    help="Expected value edge"
+                )
+            },
+            hide_index=True,
+            use_container_width=True
         )
 
 # ------------------------------
-# Match History Upload
-# ------------------------------
-def handle_history_upload():
-    uploaded_file = st.sidebar.file_uploader("Upload Match History CSV", type=["csv"])
-    if uploaded_file:
-        try:
-            df = pd.read_csv(uploaded_file)
-            required_cols = {"name", "kills", "team", "opponent"}
-            if required_cols.issubset(df.columns):
-                st.session_state.match_history = df
-                st.sidebar.success("Match history loaded successfully!")
-            else:
-                st.sidebar.error("CSV missing required columns (name, kills, team, opponent)")
-        except Exception as e:
-            st.sidebar.error(f"Error loading file: {e}")
-
-# ------------------------------
-# Main App
+# MAIN APP
 # ------------------------------
 def main():
-    # Header
-    st.image("https://upload.wikimedia.org/wikipedia/commons/thumb/f/fc/Valorant_logo_-_pink_color_version.svg/1200px-Valorant_logo_-_pink_color_version.svg.png", 
-             width=150)
-    st.title("VALORANT GC Match Analyst")
-    st.subheader("Team Liquid Brazil vs MIBR GC • 2:00PM PDT • Best of 5")
+    # Initialize services
+    scraper = ValorantDataScraper()
+    predictor = PropsPredictor()
     
-    # Initialize default data
-    if st.session_state.predictions.empty:
-        st.session_state.predictions = calculate_predictions(
-            load_default_match(),
-            st.session_state.match_history
-        )
-
-    # Main columns
-    col1, col2 = st.columns([2, 1], gap="large")
-
-    with col1:
-        # Match Predictions Display
-        with st.expander("📊 Current Predictions", expanded=True):
-            st.dataframe(
-                st.session_state.predictions.sort_values("P(OVER)", ascending=False),
-                column_config={
-                    "P(OVER)": st.column_config.ProgressColumn(
-                        "Probability",
-                        format="%.0f%%",
-                        min_value=0,
-                        max_value=100,
-                    ),
-                    "Details": st.column_config.TextColumn(
-                        "Model Details",
-                        help="μ = adjusted mean, σ = standard deviation"
-                    ),
-                    "Verdict": st.column_config.TextColumn(
-                        "Recommendation",
-                        help="Our model's suggested bet"
-                    )
-                },
-                hide_index=True,
-                use_container_width=True,
-                height=600
-            )
-            
-            st.caption("Note: Lines are for kills across first 3 maps")
-
-        # Match History Upload
-        handle_history_upload()
-
-    with col2:
-        # Chat interface
-        st.subheader("💬 Match Analyst")
-        
-        # Display chat history
-        chat_container = st.container(height=500)
-        with chat_container:
-            for chat in st.session_state.chat_history:
-                if chat['role'] == "user":
-                    st.chat_message("user").markdown(chat['content'])
-                else:
-                    st.chat_message("assistant").markdown(chat['content'])
-        
-        # Chat input
-        if question := st.chat_input("Ask about the match..."):
-            st.session_state.chat_history.append({"role": "user", "content": question})
-            
-            analyst = EsportsAnalyst()
-            with st.spinner("Analyzing..."):
-                response = analyst.generate_response(
-                    question,
-                    st.session_state.predictions,
-                    st.session_state.match_history
-                )
-            
-            st.session_state.chat_history.append({"role": "assistant", "content": response})
-            st.rerun()
+    # Session state
+    if 'predictions' not in st.session_state:
+        st.session_state.predictions = pd.DataFrame()
+    
+    # Header
+    st.title("VALORANT PROPS LAB")
+    st.subheader("Game Changers • Match Analysis")
+    
+    # Data loading
+    with st.sidebar:
+        st.header("Data Sources")
+        match_url = st.text_input("VLR.gg Match URL")
+        if st.button("Scrape Live Data"):
+            with st.spinner("Fetching match data..."):
+                match_data = scraper.scrape_vlr_match(match_url)
+                if not match_data.empty:
+                    st.session_state.predictions = predictor.calculate_predictions(match_data)
+                    st.success("Data loaded!")
+    
+    # Main interface
+    tab1, tab2 = st.tabs(["📊 Player Matrix", "🔍 Props Lab"])
+    
+    with tab1:
+        if not st.session_state.predictions.empty:
+            render_kill_matrix(st.session_state.predictions)
+        else:
+            st.warning("Load match data to begin")
+    
+    with tab2:
+        if not st.session_state.predictions.empty:
+            props_lab_view(st.session_state.predictions)
+        else:
+            st.info("Scrape a match to analyze props")
 
 if __name__ == "__main__":
     main()
