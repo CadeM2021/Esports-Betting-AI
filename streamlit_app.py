@@ -1,4 +1,4 @@
-# valorant_analyst.py
+# valorant_props_lab.py
 import streamlit as st
 import pandas as pd
 import numpy as np
@@ -11,14 +11,13 @@ from scipy.stats import norm
 import logging
 from datetime import datetime, timezone
 import plotly.express as px
-from selenium import webdriver
-from selenium.webdriver.chrome.options import Options
-from selenium.webdriver.chrome.service import Service
-from webdriver_manager.chrome import ChromeDriverManager
 
 # ------------------------------
 # CONFIGURATION
 # ------------------------------
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
 st.set_page_config(
     page_title="VALORANT PROPS LAB",
     page_icon="🔫",
@@ -26,159 +25,181 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# CSS Injection for Pro UI
-st.markdown("""
-<style>
-    .stDataFrame {
-        background-color: #0e1117 !important;
-        border-radius: 10px !important;
-    }
-    .stButton>button {
-        background: linear-gradient(90deg, #ff4d4d, #f9cb28) !important;
-        border: none !important;
-    }
-    .stChatInput {
-        bottom: 20px;
-        position: fixed !important;
-    }
-    .stTabs [data-baseweb="tab-list"] {
-        gap: 8px;
-    }
-    .stTabs [data-baseweb="tab"] {
-        padding: 8px 16px;
-        border-radius: 8px 8px 0 0 !important;
-    }
-</style>
-""", unsafe_allow_html=True)
-
 # ------------------------------
-# SCRAPER MODULE
+# DATA MODEL
 # ------------------------------
-class ValorantDataScraper:
+class MatchData:
     def __init__(self):
-        self.session = httpx.Client(
-            headers={'User-Agent': UserAgent().random},
-            timeout=30,
-            follow_redirects=True
-        )
-        self.rate_limit = 3
-        self.last_request = 0
+        self.players = []
+        self.teams = {}
+        
+    def add_player(self, name, team, position, line, opponent):
+        self.players.append({
+            "name": name,
+            "team": team,
+            "position": position,
+            "line": line,
+            "opponent": opponent,
+            "timestamp": datetime.now(timezone.utc)
+        })
+        
+    def get_dataframe(self):
+        return pd.DataFrame(self.players)
 
-    def _delay(self):
-        elapsed = time.time() - self.last_request
-        if elapsed < self.rate_limit:
-            time.sleep(self.rate_limit - elapsed + random.uniform(0.5, 1.5))
-        self.last_request = time.time()
-
+# ------------------------------
+# SCRAPER SERVICE
+# ------------------------------
+class ValorantScraper:
+    def __init__(self):
+        self.headers = {
+            "User-Agent": UserAgent().random,
+            "Accept-Language": "en-US,en;q=0.9"
+        }
+        self.min_delay = 2.5
+        self.max_delay = 5.0
+        
+    def _random_delay(self):
+        time.sleep(random.uniform(self.min_delay, self.max_delay))
+        
     def scrape_vlr_match(self, match_url):
         try:
-            self._delay()
-            response = self.session.get(match_url)
-            response.raise_for_status()
+            self._random_delay()
             
-            soup = BeautifulSoup(response.text, 'lxml')
-            players = []
-            
-            # Actual scraping logic for VLR.gg
-            for team in soup.find_all('div', class_='vm-stats-game'):
-                team_name = team.find('div', class_='team-name').text.strip()
+            with httpx.Client() as client:
+                response = client.get(
+                    match_url,
+                    headers=self.headers,
+                    timeout=30.0,
+                    follow_redirects=True
+                )
+                response.raise_for_status()
                 
-                for player_row in team.find_all('tr')[1:]:
-                    cols = player_row.find_all('td')
-                    players.append({
-                        'name': cols[0].find('div', class_='text-of').text.strip(),
-                        'team': team_name,
-                        'kills': float(cols[2].text.strip()),
-                        'deaths': float(cols[3].text.strip()),
-                        'acs': float(cols[8].text.strip()),
-                        'map': 'Map 1'
-                    })
-            
-            return pd.DataFrame(players)
-            
+                soup = BeautifulSoup(response.text, "lxml")
+                match_data = MatchData()
+                
+                # Sample parsing logic - adapt to actual site structure
+                for team_div in soup.find_all("div", class_="team-container"):
+                    team_name = team_div.find("div", class_="team-name").text.strip()
+                    
+                    for player_div in team_div.find_all("div", class_="player"):
+                        name = player_div.find("span", class_="name").text.strip()
+                        position = player_div.find("span", class_="role").text.strip()
+                        kills = float(player_div.find("span", class_="kills").text)
+                        
+                        match_data.add_player(
+                            name=name,
+                            team=team_name,
+                            position=position,
+                            line=kills,
+                            opponent="Opponent Team"  # Replace with actual logic
+                        )
+                
+                return match_data.get_dataframe()
+                
         except Exception as e:
-            st.error(f"Scraping failed: {str(e)}")
+            logger.error(f"Scraping failed: {str(e)}")
             return pd.DataFrame()
-
-    def stealth_scrape(self, url):
-        """When normal scraping fails"""
-        options = Options()
-        options.add_argument("--headless=new")
-        options.add_argument("--disable-blink-features=AutomationControlled")
-        driver = webdriver.Chrome(
-            service=Service(ChromeDriverManager().install()),
-            options=options
-        )
-        
-        try:
-            driver.get(url)
-            time.sleep(5)  # Let JavaScript render
-            soup = BeautifulSoup(driver.page_source, 'lxml')
-            # Add parsing logic here
-            return pd.DataFrame()
-        finally:
-            driver.quit()
 
 # ------------------------------
 # PREDICTION ENGINE
 # ------------------------------
 class PropsPredictor:
-    def __init__(self):
-        self.team_strength = {
-            "Team Liquid Brazil": 1.14,
-            "MIBR GC": 5.00
-        }
-        
-        self.position_factors = {
-            "Duelist": 1.15,
-            "Initiator": 1.05,
-            "Controller": 0.95,
-            "Sentinel": 0.90,
-            "Flex": 1.00
-        }
-
-    def calculate_predictions(self, players_df):
+    POSITION_MODIFIERS = {
+        "Duelist": 1.15,
+        "Initiator": 1.05,
+        "Controller": 0.95,
+        "Sentinel": 0.90,
+        "Flex": 1.00
+    }
+    
+    TEAM_STRENGTH = {
+        "Team Liquid Brazil": 1.14,
+        "MIBR GC": 5.00,
+        "Default": 1.00
+    }
+    
+    def calculate_predictions(self, raw_data):
+        if raw_data.empty:
+            return pd.DataFrame()
+            
         predictions = []
-        for _, row in players_df.iterrows():
+        
+        for _, row in raw_data.iterrows():
             try:
-                # Core calculation
-                mu = row['line'] * self.position_factors.get(row['position'], 1.0)
-                mu *= (1 + (1 - (self.team_strength[row['opponent']] / self.team_strength[row['team']])) * 0.1
+                # Calculate adjusted mean
+                team_strength = self.TEAM_STRENGTH.get(row["team"], self.TEAM_STRENGTH["Default"])
+                opponent_strength = self.TEAM_STRENGTH.get(row["opponent"], self.TEAM_STRENGTH["Default"])
                 
+                position_mod = self.POSITION_MODIFIERS.get(row.get("position", "Flex"), 1.0)
+                mu = row["line"] * position_mod * (1 + (1 - (opponent_strength / team_strength)) * 0.1
+                
+                # Dynamic standard deviation
                 sigma = {
                     "Duelist": 3.5,
                     "Initiator": 3.0,
                     "Controller": 2.5,
-                    "Sentinel": 2.0,
-                    "Flex": 3.0
-                }.get(row['position'], 3.0)
+                    "Sentinel": 2.0
+                }.get(row.get("position", "Flex"), 3.0)
                 
-                p_over = 1 - norm.cdf(row['line'], mu, sigma)
+                # Probability calculations
+                line = row["line"]
+                p_over = 1 - norm.cdf(line, mu, sigma)
                 edge = p_over - 0.5
+                confidence = min(3, max(1, int(abs(edge) * 10)))
                 
                 predictions.append({
-                    "Player": row['name'],
-                    "Team": row['team'],
-                    "Position": row['position'],
-                    "Line": row['line'],
+                    "Player": row["name"],
+                    "Team": row["team"],
+                    "Position": row.get("position", "Flex"),
+                    "Line": line,
                     "P(OVER)": p_over,
                     "Edge": edge,
-                    "Confidence": min(3, max(1, int(abs(edge) * 10)) * "⭐",
-                    "Mu": mu,
-                    "Sigma": sigma
+                    "Confidence": "⭐" * confidence,
+                    "μ": mu,
+                    "σ": sigma
                 })
                 
             except Exception as e:
-                st.warning(f"Error processing {row['name']}: {str(e)}")
+                logger.warning(f"Prediction error for {row.get('name', 'Unknown')}: {str(e)}")
                 continue
-
+                
         return pd.DataFrame(predictions)
 
 # ------------------------------
 # UI COMPONENTS
 # ------------------------------
-def render_kill_matrix(df):
-    """Grid layout from your screenshot"""
+def setup_ui():
+    """Configure custom Streamlit styles"""
+    st.markdown("""
+    <style>
+        .stDataFrame {
+            background-color: #0E1117 !important;
+            border-radius: 10px !important;
+        }
+        .stTabs [data-baseweb="tab-list"] {
+            gap: 8px;
+        }
+        .stTabs [data-baseweb="tab"] {
+            padding: 8px 16px;
+            border-radius: 8px 8px 0 0 !important;
+        }
+        .stButton>button {
+            background: linear-gradient(90deg, #FF4D4D, #F9CB28);
+            color: white !important;
+            border: none !important;
+        }
+        .stAlert [data-testid="stMarkdownContainer"] {
+            font-size: 1.1rem;
+        }
+    </style>
+    """, unsafe_allow_html=True)
+
+def render_player_matrix(df):
+    """Grid layout showing player cards"""
+    if df.empty:
+        st.warning("No player data available")
+        return
+        
     cols = st.columns(4)
     for idx, (_, row) in enumerate(df.iterrows()):
         with cols[idx % 4]:
@@ -186,20 +207,24 @@ def render_kill_matrix(df):
                 st.markdown(f"""
                 **{row['Player']}**  
                 *{row['Team']} {row['Position']}*  
-                ### {row['Line']}  
+                ### {row['Line']:.1f}  
                 📊 {row['P(OVER)']:.0%} | {row['Confidence']}
                 """)
                 
-                fig = px.histogram(
-                    x=np.random.normal(row['Mu'], row['Sigma'], 1000),
-                    nbins=20,
-                    range_x=[row['Mu']-3*row['Sigma'], row['Mu']+3*row['Sigma']]
-                )
+                # Kill distribution visualization
+                x = np.linspace(row['μ']-3*row['σ'], row['μ']+3*row['σ'], 100)
+                y = norm.pdf(x, row['μ'], row['σ'])
+                fig = px.area(x=x, y=y)
                 fig.add_vline(x=row['Line'], line_dash="dash")
+                fig.update_layout(showlegend=False, margin=dict(t=0, b=0, l=0, r=0))
                 st.plotly_chart(fig, use_container_width=True)
 
-def props_lab_view(df):
-    """Optimizer panel"""
+def render_props_lab(df):
+    """Optimization dashboard"""
+    if df.empty:
+        st.info("Load match data to analyze props")
+        return
+        
     with st.expander("🔥 PROPS LAB OPTIMIZER", expanded=True):
         st.dataframe(
             df.sort_values("Edge", ascending=False),
@@ -211,54 +236,60 @@ def props_lab_view(df):
                 ),
                 "Edge": st.column_config.NumberColumn(
                     format="+%.2f",
-                    help="Expected value edge"
+                    help="Expected value edge over market"
+                ),
+                "Line": st.column_config.NumberColumn(
+                    format="%.1f",
+                    help="Kills line set by sportsbook"
                 )
             },
             hide_index=True,
-            use_container_width=True
+            use_container_width=True,
+            height=600
         )
 
 # ------------------------------
-# MAIN APP
+# MAIN APPLICATION
 # ------------------------------
 def main():
+    setup_ui()
+    
     # Initialize services
-    scraper = ValorantDataScraper()
+    scraper = ValorantScraper()
     predictor = PropsPredictor()
     
-    # Session state
-    if 'predictions' not in st.session_state:
+    # Session state management
+    if "predictions" not in st.session_state:
         st.session_state.predictions = pd.DataFrame()
     
-    # Header
-    st.title("VALORANT PROPS LAB")
-    st.subheader("Game Changers • Match Analysis")
-    
-    # Data loading
+    # Sidebar controls
     with st.sidebar:
-        st.header("Data Sources")
-        match_url = st.text_input("VLR.gg Match URL")
-        if st.button("Scrape Live Data"):
-            with st.spinner("Fetching match data..."):
-                match_data = scraper.scrape_vlr_match(match_url)
-                if not match_data.empty:
-                    st.session_state.predictions = predictor.calculate_predictions(match_data)
-                    st.success("Data loaded!")
+        st.title("Data Sources")
+        match_url = st.text_input(
+            "VLR.gg Match URL",
+            placeholder="https://www.vlr.gg/12345/team1-vs-team2"
+        )
+        
+        if st.button("Scrape Match Data", type="primary"):
+            with st.spinner("Fetching live match data..."):
+                raw_data = scraper.scrape_vlr_match(match_url)
+                if not raw_data.empty:
+                    st.session_state.predictions = predictor.calculate_predictions(raw_data)
+                    st.success("Data loaded successfully!")
+                else:
+                    st.error("Failed to load match data")
     
     # Main interface
+    st.title("VALORANT PROPS LAB")
+    st.caption("Advanced analytics for VALORANT Game Changers matches")
+    
     tab1, tab2 = st.tabs(["📊 Player Matrix", "🔍 Props Lab"])
     
     with tab1:
-        if not st.session_state.predictions.empty:
-            render_kill_matrix(st.session_state.predictions)
-        else:
-            st.warning("Load match data to begin")
+        render_player_matrix(st.session_state.predictions)
     
     with tab2:
-        if not st.session_state.predictions.empty:
-            props_lab_view(st.session_state.predictions)
-        else:
-            st.info("Scrape a match to analyze props")
+        render_props_lab(st.session_state.predictions)
 
 if __name__ == "__main__":
     main()
