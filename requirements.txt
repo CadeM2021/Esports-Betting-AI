@@ -1,28 +1,20 @@
-# Core Requirements (minimal set)
+# Core
 streamlit==1.36.0
 pandas==2.2.2
 numpy==1.26.4
+plotly==5.18.0
 
-# Web Scraping (lightweight stack)
+# Scraping
 httpx==0.27.0
 beautifulsoup4==4.12.3
 lxml==5.2.2
+fake-useragent==1.4.0
 
-# Selenium (Cloud-optimized)
+# Advanced scraping
 selenium==4.21.0
 webdriver-manager==4.0.1
-pyvirtualdisplay==3.0
+selenium-stealth==1.0.6
 
-# Data Analysis
+# Stats
 scipy==1.13.0
 statsmodels==0.14.1
-
-# Chat (optional - remove if not needed)
-openai==1.12.0
-
-# Cloud Deployment Considerations
-# ------------------------------
-# For headless environments (like cloud servers), add these:
-# xvfbwrapper==0.2.9
-# fontconfig==2.14.2
-# fonts-liberation==2.1.5
